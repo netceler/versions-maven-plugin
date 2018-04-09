@@ -20,6 +20,7 @@ package org.codehaus.mojo.versions;
  */
 
 import org.apache.maven.artifact.Artifact;
+import org.apache.maven.artifact.ArtifactUtils;
 import org.apache.maven.artifact.metadata.ArtifactMetadataRetrievalException;
 import org.apache.maven.artifact.versioning.ArtifactVersion;
 import org.apache.maven.artifact.versioning.InvalidVersionSpecificationException;
@@ -30,11 +31,14 @@ import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
+import org.codehaus.mojo.versions.api.ArtifactAssociation;
 import org.codehaus.mojo.versions.api.ArtifactVersions;
 import org.codehaus.mojo.versions.api.PomHelper;
+import org.codehaus.mojo.versions.api.PropertyVersions;
 import org.codehaus.mojo.versions.rewriting.ModifiedPomXMLEventReader;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -68,6 +72,14 @@ public class UseReleasesMojo
     @Parameter( property = "failIfNotReplaced", defaultValue = "false" )
     private boolean failIfNotReplaced;
 
+    /**
+     * Whether to process the properties section of the project.
+     *
+     * @since 2.6
+     */
+    @Parameter( property = "processProperties", defaultValue = "false" )
+    private boolean processProperties;
+
     // ------------------------------ FIELDS ------------------------------
 
     /**
@@ -76,6 +88,17 @@ public class UseReleasesMojo
     public final Pattern matchSnapshotRegex = Pattern.compile( "^(.+)-((SNAPSHOT)|(\\d{8}\\.\\d{6}-\\d+))$" );
 
     // ------------------------------ METHODS --------------------------
+
+    /**
+     * Should the project/properties section of the pom be processed.
+     *
+     * @return returns <code>true if the project/properties section of the pom should be processed.
+     * @since 2.6
+     */
+    public boolean isProcessingProperties()
+    {
+        return processProperties;
+    }
 
     /**
      * @param pom the pom to update.
@@ -228,6 +251,41 @@ public class UseReleasesMojo
                 }
             }
         }
+
+        if (isProcessingProperties())
+        {
+            Map<Property, PropertyVersions> propertyVersions =
+                    this.getHelper().getVersionPropertiesMap(getProject(), null, null, null,
+                            true);
+            for (Map.Entry<Property, PropertyVersions> entry : propertyVersions.entrySet())
+            {
+                Property property = entry.getKey();
+                PropertyVersions version = entry.getValue();
+
+                final String currentVersion = getProject().getProperties().getProperty( property.getName() );
+                if ( ArtifactUtils.isSnapshot(currentVersion) )
+                {
+                    boolean canUpdateProperty = true;
+                    for ( ArtifactAssociation association : version.getAssociations() )
+                    {
+                        if ( !( isIncluded( association.getArtifact() ) ) )
+                        {
+                            getLog().info( "Not updating the property ${" + property.getName()
+                                    + "} because it is used by artifact " + association.getArtifact().toString()
+                                    + " and that artifact is not included in the list of " + " allowed artifacts to be updated." );
+                            canUpdateProperty = false;
+                            break;
+                        }
+                    }
+
+                    if ( canUpdateProperty )
+                    {
+                        updatePropertyToNewerReleaseVersion( pom, property, version, currentVersion );
+                    }
+                }
+            }
+        }
+
     }
 
     private void rangeMatching( ModifiedPomXMLEventReader pom, Dependency dep, String version, String releaseVersion,

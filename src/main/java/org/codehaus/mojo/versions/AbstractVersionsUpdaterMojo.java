@@ -510,4 +510,20 @@ public abstract class AbstractVersionsUpdaterMojo
             getLog().info( "Updated ${" + property.getName() + "} from " + currentVersion + " to " + winner );
         }
     }
+
+    protected void updatePropertyToNewerReleaseVersion(ModifiedPomXMLEventReader pom, Property property,
+                                                       PropertyVersions version, String currentVersion)
+            throws XMLStreamException
+    {
+        final ArtifactVersion[] newerVersions = version.getNewerVersions(currentVersion, false);
+
+        if ( newerVersions.length == 0 )
+        {
+            getLog().info( "Property ${" + property.getName() + "}: Leaving unchanged as " + currentVersion );
+        }
+        else if ( PomHelper.setPropertyVersion( pom, version.getProfileId(), property.getName(), newerVersions[0].toString() ) )
+        {
+            getLog().info( "Updated ${" + property.getName() + "} from " + currentVersion + " to " + newerVersions[0] );
+        }
+    }
 }
